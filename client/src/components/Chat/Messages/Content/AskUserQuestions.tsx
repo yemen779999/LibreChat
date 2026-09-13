@@ -31,7 +31,7 @@ export default function AskUserQuestions({
           <button
             type="button"
             aria-label={localize('com_ui_expand')}
-            className="rounded p-1 text-text-secondary hover:bg-surface-hover"
+            className="rounded p-1 text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-heavy"
             onClick={onExpand}
           >
             <ChevronUp className="h-4 w-4" aria-hidden="true" />
