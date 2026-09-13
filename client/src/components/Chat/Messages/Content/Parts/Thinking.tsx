@@ -75,6 +75,7 @@ export const ThinkingButton = memo(
           aria-controls={contentId}
           className={cn(
             'group/button flex flex-1 items-center justify-start rounded-lg leading-[18px]',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-heavy',
             fontSize,
           )}
         >
