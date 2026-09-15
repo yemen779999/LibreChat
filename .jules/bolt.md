@@ -1,0 +1,3 @@
+## 2026-09-15 - Single-pass in-place tree building in buildTree
+**Learning:** `buildTree` in `packages/data-provider/src/messages.ts` is called frequently on streaming updates and render passes. In cycle severing / depth assignment, using `.some` and `.filter` created intermediate closure and array allocations on every message node walk. Replacing this with an in-place single pass loop and replacing `Record` lookups with `Map` significantly reduces garbage collection pressure and runtime complexity.
+**Action:** Prefer in-place index shifts and `Map` lookups over chained array methods (`.some()`, `.filter()`, `.map()`) in hot recursive/tree data structure transformations.
