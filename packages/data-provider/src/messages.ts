@@ -2,6 +2,7 @@ import type { TFile } from './types/files';
 import type { TMessage } from './types';
 
 export type ParentMessage = TMessage & { children: TMessage[]; depth: number };
+
 /**
  * Builds the render tree from the flat messages array. Order-robust: live
  * stream/steer/preempt cache writes can momentarily place a child before its
@@ -26,7 +27,8 @@ export function buildTree({
   const rootMessages: ParentMessage[] = [];
   const childrenCount: Record<string, number> = {};
 
-  for (const message of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
     if (!message) {
       continue;
     }
@@ -36,24 +38,32 @@ export function buildTree({
      *  `children.length`. */
     const parentId =
       message.parentMessageId === message.messageId ? '' : (message.parentMessageId ?? '');
-    childrenCount[parentId] = (childrenCount[parentId] || 0) + 1;
+    const siblingIndex = childrenCount[parentId] ?? 0;
+    childrenCount[parentId] = siblingIndex + 1;
 
     const extendedMessage: ParentMessage = {
       ...message,
       children: [],
       depth: 0,
-      siblingIndex: childrenCount[parentId] - 1,
+      siblingIndex,
     };
 
     if (message.files && fileMap) {
-      extendedMessage.files = message.files.map((file) => fileMap[file.file_id ?? ''] ?? file);
+      const files = message.files;
+      const hydratedFiles: TFile[] = new Array(files.length);
+      for (let j = 0; j < files.length; j++) {
+        const file = files[j];
+        hydratedFiles[j] = fileMap[file.file_id ?? ''] ?? file;
+      }
+      extendedMessage.files = hydratedFiles;
     }
 
     messageMap[message.messageId] = extendedMessage;
     orderedMessages.push(extendedMessage);
   }
 
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     const parentMessage = messageMap[extendedMessage.parentMessageId ?? ''];
     if (parentMessage && parentMessage !== extendedMessage) {
       parentMessage.children.push(extendedMessage);
@@ -65,30 +75,39 @@ export function buildTree({
   /** Depth comes from a roots-down walk (a child linked before its parent
    *  can't inherit depth at link time). The `visited` set doubles as the
    *  cycle guard: nodes on a corrupt parent cycle are unreachable from any
-   *  root, so they resurface as roots instead of disappearing. */
+   *  root, so they resurface as roots instead of disappearing.
+   *
+   *  Performance optimization: Depth assignment and cycle severing are
+   *  combined in a single-pass in-place loop without array allocations. */
   const visited = new Set<ParentMessage>();
   const assignDepths = (root: ParentMessage) => {
     visited.add(root);
     const stack: ParentMessage[] = [root];
     while (stack.length > 0) {
       const node = stack.pop() as ParentMessage;
-      /** Every node has one parent, so this walk reaches each node once — an
-       *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
+      let validChildrenCount = 0;
+      const children = node.children as ParentMessage[];
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          continue;
+        }
         child.depth = node.depth + 1;
         visited.add(child);
         stack.push(child);
+        children[validChildrenCount++] = child;
+      }
+      if (validChildrenCount < children.length) {
+        children.length = validChildrenCount;
       }
     }
   };
-  for (const root of rootMessages) {
-    assignDepths(root);
+
+  for (let i = 0; i < rootMessages.length; i++) {
+    assignDepths(rootMessages[i]);
   }
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     if (!visited.has(extendedMessage)) {
       rootMessages.push(extendedMessage);
       assignDepths(extendedMessage);
