@@ -383,9 +383,20 @@ export async function fetchOpenAIModels(
   if (baseURL === openaiBaseURL) {
     const regex = /(text-davinci-003|gpt-|o\d+|chat-latest)/;
     const excludeRegex = /audio|realtime/;
-    models = models.filter((model) => regex.test(model) && !excludeRegex.test(model));
-    const instructModels = models.filter((model) => model.includes('instruct'));
-    const otherModels = models.filter((model) => !model.includes('instruct'));
+    // Single pass optimization: filter and partition models into other and instruct
+    // arrays in one loop instead of 3 array iterations & allocations.
+    const instructModels: string[] = [];
+    const otherModels: string[] = [];
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      if (regex.test(model) && !excludeRegex.test(model)) {
+        if (model.includes('instruct')) {
+          instructModels.push(model);
+        } else {
+          otherModels.push(model);
+        }
+      }
+    }
     models = otherModels.concat(instructModels);
   }
 
