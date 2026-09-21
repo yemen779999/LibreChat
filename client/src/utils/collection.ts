@@ -6,6 +6,10 @@ import { InfiniteData, QueryClient } from '@tanstack/react-query';
  * to avoid unnecessary garbage collection overhead and object allocations during cache updates.
  */
 
+function getCollection<TData>(page: unknown, collectionName: string): TData[] {
+  return ((page as Record<string, unknown>)?.[collectionName] as TData[]) || [];
+}
+
 export const addData = <TCollection, TData>(
   data: InfiniteData<TCollection>,
   collectionName: string,
@@ -24,7 +28,7 @@ export const addData = <TCollection, TData>(
 
   const newPages = [...data.pages];
   const page0 = newPages[0];
-  const collection = (page0 as Record<string, unknown>)[collectionName] as TData[] || [];
+  const collection = getCollection<TData>(page0, collectionName);
 
   const itemToAdd = {
     ...newData,
@@ -49,14 +53,12 @@ export const getRecordByProperty = <TCollection, TData>(
 ): TData | undefined => {
   // Find the page and the index of the record in that page
   const { pageIndex, index } = findPage<TCollection>(data, (page) =>
-    (page as Record<string, unknown>)[collectionName]
-      ? ((page as Record<string, unknown>)[collectionName] as TData[]).findIndex(findProperty)
-      : -1,
+    getCollection<TData>(page, collectionName).findIndex(findProperty),
   );
 
   // If found, return the record
   if (pageIndex !== -1 && index !== -1) {
-    return ((data.pages[pageIndex] as Record<string, unknown>)[collectionName] as TData[])[index];
+    return getCollection<TData>(data.pages[pageIndex], collectionName)[index];
   }
 
   // Return undefined if the record is not found
@@ -97,7 +99,7 @@ export const updateData = <TCollection, TData>(
 
   if (pageIndex === 0) {
     const page0 = newPages[0];
-    const collection = [...((page0 as Record<string, unknown>)[collectionName] as TData[])];
+    const collection = [...getCollection<TData>(page0, collectionName)];
     collection.splice(index, 1);
     collection.unshift(itemToUpdate);
 
@@ -107,7 +109,7 @@ export const updateData = <TCollection, TData>(
     };
   } else {
     const targetPage = newPages[pageIndex];
-    const targetCollection = [...((targetPage as Record<string, unknown>)[collectionName] as TData[])];
+    const targetCollection = [...getCollection<TData>(targetPage, collectionName)];
     targetCollection.splice(index, 1);
     newPages[pageIndex] = {
       ...targetPage,
@@ -115,7 +117,7 @@ export const updateData = <TCollection, TData>(
     };
 
     const page0 = newPages[0];
-    const page0Collection = [...((page0 as Record<string, unknown>)[collectionName] as TData[])];
+    const page0Collection = [...getCollection<TData>(page0, collectionName)];
     page0Collection.unshift(itemToUpdate);
     newPages[0] = {
       ...page0,
@@ -147,7 +149,7 @@ export const deleteData = <TCollection, TData>(
 
   const newPages = [...infiniteData.pages];
   const targetPage = newPages[pageIndex];
-  const collection = [...((targetPage as Record<string, unknown>)[collectionName] as TData[])];
+  const collection = [...getCollection<TData>(targetPage, collectionName)];
   collection.splice(index, 1);
 
   newPages[pageIndex] = {
@@ -178,9 +180,7 @@ export const normalizeData = <TCollection, TData>(
   const pageParams = data.pageParams;
 
   // Combine all items of all pages into one array
-  let collection = data.pages.flatMap(
-    (page) => ((page as Record<string, unknown>)[collectionName] as TData[]) || [],
-  );
+  let collection = data.pages.flatMap((page) => getCollection<TData>(page, collectionName));
 
   if (collection.length === 0) {
     return data;
@@ -202,7 +202,7 @@ export const normalizeData = <TCollection, TData>(
   const restructuredPages = Array.from({ length: pageCount }, (_, i) => ({
     ...data.pages[i],
     [collectionName]: collection.slice(i * pageSize, (i + 1) * pageSize),
-  })).filter((page) => ((page as Record<string, unknown>)[collectionName] as TData[]).length > 0);
+  })).filter((page) => getCollection<TData>(page, collectionName).length > 0);
 
   return {
     ...data,
@@ -223,7 +223,7 @@ export const updateFields = <TCollection, TData>(
   }
 
   const { pageIndex, index } = findPage<TCollection>(data, (page) =>
-    ((page as Record<string, unknown>)[collectionName] as TData[])?.findIndex(
+    getCollection<TData>(page, collectionName).findIndex(
       (item: TData) => item[identifierField] === updatedItem[identifierField],
     ),
   );
@@ -236,7 +236,7 @@ export const updateFields = <TCollection, TData>(
 
   if (pageIndex === 0) {
     const page0 = newPages[0];
-    const collection = [...((page0 as Record<string, unknown>)[collectionName] as TData[])];
+    const collection = [...getCollection<TData>(page0, collectionName)];
     const oldItem = collection[index];
     const newItem = {
       ...oldItem,
@@ -255,7 +255,7 @@ export const updateFields = <TCollection, TData>(
     };
   } else {
     const targetPage = newPages[pageIndex];
-    const targetCollection = [...((targetPage as Record<string, unknown>)[collectionName] as TData[])];
+    const targetCollection = [...getCollection<TData>(targetPage, collectionName)];
     const oldItem = targetCollection[index];
     const newItem = {
       ...oldItem,
@@ -272,7 +272,7 @@ export const updateFields = <TCollection, TData>(
     };
 
     const page0 = newPages[0];
-    const page0Collection = [...((page0 as Record<string, unknown>)[collectionName] as TData[])];
+    const page0Collection = [...getCollection<TData>(page0, collectionName)];
     page0Collection.unshift(newItem);
     newPages[0] = {
       ...page0,
