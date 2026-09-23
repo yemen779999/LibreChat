@@ -21,12 +21,13 @@ export function buildTree({
     return null;
   }
 
-  const messageMap: Record<string, ParentMessage> = {};
+  const messageMap = new Map<string, ParentMessage>();
+  const childrenCount = new Map<string, number>();
   const orderedMessages: ParentMessage[] = [];
   const rootMessages: ParentMessage[] = [];
-  const childrenCount: Record<string, number> = {};
 
-  for (const message of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
     if (!message) {
       continue;
     }
@@ -36,25 +37,27 @@ export function buildTree({
      *  `children.length`. */
     const parentId =
       message.parentMessageId === message.messageId ? '' : (message.parentMessageId ?? '');
-    childrenCount[parentId] = (childrenCount[parentId] || 0) + 1;
+    const currentCount = (childrenCount.get(parentId) ?? 0) + 1;
+    childrenCount.set(parentId, currentCount);
 
     const extendedMessage: ParentMessage = {
       ...message,
       children: [],
       depth: 0,
-      siblingIndex: childrenCount[parentId] - 1,
+      siblingIndex: currentCount - 1,
     };
 
     if (message.files && fileMap) {
       extendedMessage.files = message.files.map((file) => fileMap[file.file_id ?? ''] ?? file);
     }
 
-    messageMap[message.messageId] = extendedMessage;
+    messageMap.set(message.messageId, extendedMessage);
     orderedMessages.push(extendedMessage);
   }
 
-  for (const extendedMessage of orderedMessages) {
-    const parentMessage = messageMap[extendedMessage.parentMessageId ?? ''];
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
+    const parentMessage = messageMap.get(extendedMessage.parentMessageId ?? '');
     if (parentMessage && parentMessage !== extendedMessage) {
       parentMessage.children.push(extendedMessage);
     } else {
@@ -74,14 +77,31 @@ export function buildTree({
       const node = stack.pop() as ParentMessage;
       /** Every node has one parent, so this walk reaches each node once — an
        *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
+       *  it) so consumers that recurse `children` terminate.
+       *  Consolidate cycle detection, back-edge severing, depth assignment,
+       *  visited tracking, and stack pushing into a single pass over node.children.
+       */
+      const children = node.children as ParentMessage[];
+      let validChildren: ParentMessage[] | null = null;
+
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          if (!validChildren) {
+            validChildren = children.slice(0, i);
+          }
+          continue;
+        }
         child.depth = node.depth + 1;
         visited.add(child);
         stack.push(child);
+        if (validChildren) {
+          validChildren.push(child);
+        }
+      }
+
+      if (validChildren) {
+        node.children = validChildren;
       }
     }
   };
