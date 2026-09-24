@@ -27,6 +27,13 @@ const refTypeMap: Record<string, string> = {
   video: 'videos',
 };
 
+// Optimization: Pre-compile reusable RegExp instances to prevent repeated instantiation and allocation during citation processing
+const standaloneRegex = new RegExp(STANDALONE_PATTERN.source, 'g');
+const compositeRegex = new RegExp(COMPOSITE_REGEX.source, 'g');
+const innerCitationRegex = new RegExp(STANDALONE_PATTERN.source, 'g');
+const markerStripRegex = /\\ue203|\\ue204|\ue203|\ue204/g;
+const orphanedCompositeRegex = /\n\s*\[\d+\](\[\d+\])*\s*$/g;
+
 export default function useCopyToClipboard({
   text,
   content,
@@ -129,7 +136,7 @@ function processCitations(text: string, searchResults: { [key: string]: SearchRe
 
   // Step 1: Process highlighted text first (simplify by just making it bold in markdown)
   formattedText = formattedText.replace(SPAN_REGEX, (match) => {
-    const text = match.replace(/\\ue203|\\ue204|\ue203|\ue204/g, '');
+    const text = match.replace(markerStripRegex, '');
     return `**${text}**`;
   });
 
@@ -145,8 +152,8 @@ function processCitations(text: string, searchResults: { [key: string]: SearchRe
 
   // Find standalone citations
   let standaloneMatch: RegExpExecArray | null;
-  const standaloneCopy = new RegExp(STANDALONE_PATTERN.source, 'g');
-  while ((standaloneMatch = standaloneCopy.exec(formattedText)) !== null) {
+  standaloneRegex.lastIndex = 0;
+  while ((standaloneMatch = standaloneRegex.exec(formattedText)) !== null) {
     allCitations.push({
       turn: standaloneMatch[1],
       type: standaloneMatch[2],
@@ -159,15 +166,15 @@ function processCitations(text: string, searchResults: { [key: string]: SearchRe
 
   // Find composite citation blocks
   let compositeMatch: RegExpExecArray | null;
-  const compositeCopy = new RegExp(COMPOSITE_REGEX.source, 'g');
-  while ((compositeMatch = compositeCopy.exec(formattedText)) !== null) {
+  compositeRegex.lastIndex = 0;
+  while ((compositeMatch = compositeRegex.exec(formattedText)) !== null) {
     const block = compositeMatch[0];
     const blockStart = compositeMatch.index;
 
     // Extract individual citations within the composite block
     let citationMatch: RegExpExecArray | null;
-    const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
-    while ((citationMatch = citationPattern.exec(block)) !== null) {
+    innerCitationRegex.lastIndex = 0;
+    while ((citationMatch = innerCitationRegex.exec(block)) !== null) {
       allCitations.push({
         turn: citationMatch[1],
         type: citationMatch[2],
@@ -254,9 +261,9 @@ function processCitations(text: string, searchResults: { [key: string]: SearchRe
         if (!processedCitations.has(fullMatch)) {
           const compositeCitations: number[] = [];
           let citationMatch: RegExpExecArray | null;
-          const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
+          innerCitationRegex.lastIndex = 0;
 
-          while ((citationMatch = citationPattern.exec(fullMatch)) !== null) {
+          while ((citationMatch = innerCitationRegex.exec(fullMatch)) !== null) {
             const cTurn = citationMatch[1];
             const cType = citationMatch[2];
             const cIndex = citationMatch[3];
@@ -330,7 +337,7 @@ function processCitations(text: string, searchResults: { [key: string]: SearchRe
 
   // Step 5: Remove any orphaned composite blocks at the end of the text
   // This prevents the [1][2][3][4] list that might appear at the end if there's a composite there
-  formattedText = formattedText.replace(/\n\s*\[\d+\](\[\d+\])*\s*$/g, '');
+  formattedText = formattedText.replace(orphanedCompositeRegex, '');
 
   // Step 6: Clean up any remaining citation markers
   formattedText = formattedText.replace(INVALID_CITATION_REGEX, '');
