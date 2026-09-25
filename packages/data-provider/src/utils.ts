@@ -40,6 +40,11 @@ export function extractEnvVariable(value: string) {
     return value;
   }
 
+  // Fast path: skip expensive string trimming and regex matching if no '$' character is present
+  if (value.indexOf('$') === -1) {
+    return value;
+  }
+
   const trimmed = value.trim();
 
   const singleMatch = trimmed.match(envVarRegex);
