@@ -26,7 +26,10 @@ export function buildTree({
   const rootMessages: ParentMessage[] = [];
   const childrenCount: Record<string, number> = {};
 
-  for (const message of messages) {
+  // Optimization: use index-based loops and in-place child filtering to reduce allocations
+  // during frequent tree builds in live streaming and UI updates.
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
     if (!message) {
       continue;
     }
@@ -36,13 +39,14 @@ export function buildTree({
      *  `children.length`. */
     const parentId =
       message.parentMessageId === message.messageId ? '' : (message.parentMessageId ?? '');
-    childrenCount[parentId] = (childrenCount[parentId] || 0) + 1;
+    const count = (childrenCount[parentId] || 0) + 1;
+    childrenCount[parentId] = count;
 
     const extendedMessage: ParentMessage = {
       ...message,
       children: [],
       depth: 0,
-      siblingIndex: childrenCount[parentId] - 1,
+      siblingIndex: count - 1,
     };
 
     if (message.files && fileMap) {
@@ -53,7 +57,8 @@ export function buildTree({
     orderedMessages.push(extendedMessage);
   }
 
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     const parentMessage = messageMap[extendedMessage.parentMessageId ?? ''];
     if (parentMessage && parentMessage !== extendedMessage) {
       parentMessage.children.push(extendedMessage);
@@ -72,23 +77,36 @@ export function buildTree({
     const stack: ParentMessage[] = [root];
     while (stack.length > 0) {
       const node = stack.pop() as ParentMessage;
-      /** Every node has one parent, so this walk reaches each node once — an
-       *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
-        child.depth = node.depth + 1;
+      const children = node.children as ParentMessage[];
+      const nextDepth = node.depth + 1;
+
+      /** Filter visited children (cycle back-edges) in-place during traversal
+       *  to avoid creating `.some()` and `.filter()` closures/arrays for every node. */
+      let writeIdx = 0;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          continue;
+        }
+        child.depth = nextDepth;
         visited.add(child);
         stack.push(child);
+        if (writeIdx !== i) {
+          children[writeIdx] = child;
+        }
+        writeIdx++;
+      }
+      if (writeIdx !== children.length) {
+        children.length = writeIdx;
       }
     }
   };
-  for (const root of rootMessages) {
-    assignDepths(root);
+
+  for (let i = 0; i < rootMessages.length; i++) {
+    assignDepths(rootMessages[i]);
   }
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     if (!visited.has(extendedMessage)) {
       rootMessages.push(extendedMessage);
       assignDepths(extendedMessage);
