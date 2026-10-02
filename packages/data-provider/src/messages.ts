@@ -74,14 +74,33 @@ export function buildTree({
       const node = stack.pop() as ParentMessage;
       /** Every node has one parent, so this walk reaches each node once — an
        *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
+       *  it) so consumers that recurse `children` terminate. Optimizing this
+       *  walk into a single pass avoids redundant array iterations (.some, .filter)
+       *  and closures per node during frequent streaming tree builds. */
+      const children = node.children as ParentMessage[];
+      let validChildren: ParentMessage[] = children;
+      let hasCycle = false;
+
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          if (!hasCycle) {
+            hasCycle = true;
+            validChildren = children.slice(0, i);
+          }
+          continue;
+        }
+
+        if (hasCycle) {
+          validChildren.push(child);
+        }
         child.depth = node.depth + 1;
         visited.add(child);
         stack.push(child);
+      }
+
+      if (hasCycle) {
+        node.children = validChildren;
       }
     }
   };
