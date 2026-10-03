@@ -1,15 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { LocalStorageKeys, QueryKeys } from 'librechat-data-provider';
-import {
-  format,
-  isToday,
-  subDays,
-  getYear,
-  parseISO,
-  startOfDay,
-  startOfYear,
-  isWithinInterval,
-} from 'date-fns';
+import { format, isToday, subDays, getYear, parseISO, startOfDay, startOfYear } from 'date-fns';
 import type { TConversation, GroupedConversations } from 'librechat-data-provider';
 import type { InfiniteData } from '@tanstack/react-query';
 
@@ -33,21 +24,38 @@ export const dateKeys = {
   december: 'com_ui_date_december',
 };
 
-const getGroupName = (date: Date) => {
-  const now = new Date(Date.now());
+type DateBoundaries = {
+  nowTime: number;
+  yesterdayStart: number;
+  sevenDaysAgo: number;
+  thirtyDaysAgo: number;
+  yearStart: number;
+};
+
+type ScopedConversation = {
+  conversation: TConversation;
+  time: number;
+};
+
+/**
+ * Determines the date group name using precalculated boundary timestamps to avoid
+ * re-allocating Date objects and re-running interval functions on every item.
+ */
+const getGroupName = (date: Date, boundaries: DateBoundaries) => {
   if (isToday(date)) {
     return dateKeys.today;
   }
-  if (isWithinInterval(date, { start: startOfDay(subDays(now, 1)), end: now })) {
+  const time = date.getTime();
+  if (time >= boundaries.yesterdayStart && time <= boundaries.nowTime) {
     return dateKeys.yesterday;
   }
-  if (isWithinInterval(date, { start: subDays(now, 7), end: now })) {
+  if (time >= boundaries.sevenDaysAgo && time <= boundaries.nowTime) {
     return dateKeys.previous7Days;
   }
-  if (isWithinInterval(date, { start: subDays(now, 30), end: now })) {
+  if (time >= boundaries.thirtyDaysAgo && time <= boundaries.nowTime) {
     return dateKeys.previous30Days;
   }
-  if (isWithinInterval(date, { start: startOfYear(now), end: now })) {
+  if (time >= boundaries.yearStart && time <= boundaries.nowTime) {
     const month = format(date, 'MMMM').toLowerCase();
     return dateKeys[month];
   }
@@ -76,6 +84,11 @@ const dateGroupsSet = new Set([
   dateKeys.previous30Days,
 ]);
 
+/**
+ * Groups conversations by date category (today, yesterday, previous 7 days, etc.)
+ * Pre-computes date boundaries once and caches parsed timestamps per conversation
+ * to minimize allocations and avoid O(N log N) Date parsing inside sort comparators.
+ */
 export const groupConversationsByDate = (
   conversations: Array<TConversation | null>,
   dateField: 'updatedAt' | 'createdAt' = 'updatedAt',
@@ -83,13 +96,21 @@ export const groupConversationsByDate = (
   if (!Array.isArray(conversations)) {
     return [];
   }
-  const seenConversationIds = new Set();
-  const groups = new Map();
+  const seenConversationIds = new Set<string>();
+  const groups = new Map<string, ScopedConversation[]>();
   const now = new Date(Date.now());
+  const boundaries: DateBoundaries = {
+    nowTime: now.getTime(),
+    yesterdayStart: startOfDay(subDays(now, 1)).getTime(),
+    sevenDaysAgo: subDays(now, 7).getTime(),
+    thirtyDaysAgo: subDays(now, 30).getTime(),
+    yearStart: startOfYear(now).getTime(),
+  };
 
   conversations.forEach((conversation) => {
     if (
       !conversation ||
+      !conversation.conversationId ||
       seenConversationIds.has(conversation.conversationId) ||
       conversation.pinned
     ) {
@@ -104,17 +125,21 @@ export const groupConversationsByDate = (
     } else {
       date = now;
     }
-    const groupName = getGroupName(date);
-    if (!groups.has(groupName)) {
-      groups.set(groupName, []);
+    const time = date.getTime();
+    const groupName = getGroupName(date, boundaries);
+    let group = groups.get(groupName);
+    if (!group) {
+      group = [];
+      groups.set(groupName, group);
     }
-    groups.get(groupName).push(conversation);
+    group.push({ conversation, time });
   });
 
-  const sortedGroups = new Map();
+  const sortedGroups = new Map<string, ScopedConversation[]>();
   dateGroupsSet.forEach((group) => {
-    if (groups.has(group)) {
-      sortedGroups.set(group, groups.get(group));
+    const items = groups.get(group);
+    if (items) {
+      sortedGroups.set(group, items);
     }
   });
 
@@ -131,17 +156,16 @@ export const groupConversationsByDate = (
       return bOrder - aOrder;
     });
   yearMonthGroups.forEach((group) => {
-    sortedGroups.set(group, groups.get(group));
+    const items = groups.get(group);
+    if (items) {
+      sortedGroups.set(group, items);
+    }
   });
 
-  sortedGroups.forEach((conversations) => {
-    conversations.sort(
-      (a: TConversation, b: TConversation) =>
-        new Date(b[dateField] ?? b.updatedAt ?? 0).getTime() -
-        new Date(a[dateField] ?? a.updatedAt ?? 0).getTime(),
-    );
-  });
-  return Array.from(sortedGroups, ([key, value]) => [key, value]);
+  return Array.from(sortedGroups, ([key, items]) => [
+    key,
+    items.sort((a, b) => b.time - a.time).map((item) => item.conversation),
+  ]);
 };
 
 export type ConversationCursorData = {
