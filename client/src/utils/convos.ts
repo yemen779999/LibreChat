@@ -110,6 +110,7 @@ export const groupConversationsByDate = (
   conversations.forEach((conversation) => {
     if (
       !conversation ||
+      !conversation.conversationId ||
       seenConversationIds.has(conversation.conversationId) ||
       conversation.pinned
     ) {
