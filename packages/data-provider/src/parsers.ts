@@ -102,12 +102,13 @@ export function orderEndpointsConfig(endpointsConfig: t.TEndpointsConfig) {
     return {};
   }
   const enabledEndpoints = getEnabledEndpoints();
+  const enabledEndpointsSet = new Set(enabledEndpoints);
   const endpointKeys = Object.keys(endpointsConfig);
   const defaultCustomIndex = enabledEndpoints.indexOf(EModelEndpoint.custom);
   return endpointKeys.reduce(
     (accumulatedConfig: Record<string, t.TConfig | null | undefined>, currentEndpointKey) => {
       const isCustom = !(currentEndpointKey in EModelEndpoint);
-      const isEnabled = enabledEndpoints.includes(currentEndpointKey);
+      const isEnabled = enabledEndpointsSet.has(currentEndpointKey);
       if (!isEnabled && !isCustom) {
         return accumulatedConfig;
       }
@@ -457,6 +458,12 @@ export function replaceSpecialVars({
 }) {
   let result = text;
   if (!result) {
+    return result;
+  }
+
+  // Fast-path performance optimization: return early if input string contains no special variable syntax "{{".
+  // Avoids expensive Day.js instantiation, timezone calculations, string formatting, and regex replacements when unnecessary.
+  if (!result.includes('{{')) {
     return result;
   }
 
