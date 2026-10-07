@@ -665,11 +665,16 @@ export function normalizeUsageUnits(usage: TTokenUsageEvent): CostUnits {
   };
 }
 
+let compactTokenFormatter: Intl.NumberFormat | undefined;
+
 export function formatTokens(count: number): string {
-  const formatted = new Intl.NumberFormat(undefined, {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(count);
+  if (!compactTokenFormatter) {
+    compactTokenFormatter = new Intl.NumberFormat(undefined, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    });
+  }
+  const formatted = compactTokenFormatter.format(count);
   return formatted.replace(/\.0(?=[A-Za-z]|$)/, '');
 }
 
