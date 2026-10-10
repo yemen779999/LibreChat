@@ -15,6 +15,15 @@ const BaseClient = require('~/app/clients/BaseClient');
  */
 function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
   const idMapping = new Map();
+  /** Map messageId to cloned message object for O(1) lookups during timestamp calculation */
+  const clonedMessageMap = new Map();
+  if (Array.isArray(importBatchBuilder?.messages)) {
+    for (const msg of importBatchBuilder.messages) {
+      if (msg.messageId) {
+        clonedMessageMap.set(msg.messageId, msg);
+      }
+    }
+  }
 
   // First pass: create ID mapping and sort messages by parentMessageId
   const sortedMessages = [...messagesToClone].sort((a, b) => {
@@ -48,7 +57,8 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     // If this message has a parent, ensure its timestamp is after the parent's
     let createdAt = ensureDate(message.createdAt);
     if (parentId !== Constants.NO_PARENT) {
-      const parentMessage = importBatchBuilder.messages.find((msg) => msg.messageId === parentId);
+      /** Use O(1) Map lookup instead of O(N) array search inside the loop */
+      const parentMessage = clonedMessageMap.get(parentId);
       if (parentMessage) {
         const parentDate = ensureDate(parentMessage.createdAt);
         if (createdAt <= parentDate) {
@@ -64,6 +74,7 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
       createdAt,
     };
 
+    clonedMessageMap.set(newMessageId, clonedMessage);
     importBatchBuilder.saveMessage(clonedMessage);
   }
 
@@ -173,7 +184,13 @@ async function forkConversation({
  * @returns {TMessage[]} The list of messages up to the root from the target message.
  */
 function getAllMessagesUpToParent(messages, targetMessageId) {
-  const targetMessage = messages.find((msg) => msg.messageId === targetMessageId);
+  /** Map messageId to message object for O(1) lookups */
+  const messageMap = new Map();
+  for (const msg of messages) {
+    messageMap.set(msg.messageId, msg);
+  }
+
+  const targetMessage = messageMap.get(targetMessageId);
   if (!targetMessage) {
     return [];
   }
@@ -195,7 +212,7 @@ function getAllMessagesUpToParent(messages, targetMessageId) {
       break;
     }
 
-    current = messages.find((msg) => msg.messageId === currentParentId);
+    current = messageMap.get(currentParentId);
   }
 
   // Include all messages that are in the path or whose parent is in the path
@@ -219,9 +236,11 @@ function getMessagesUpToTargetLevel(messages, targetMessageId) {
     return messages;
   }
 
-  // Create a map of parentMessageId to children messages
+  // Create a map of parentMessageId to children messages and messageId to message for O(1) lookups
   const parentToChildrenMap = new Map();
+  const messageMap = new Map();
   for (const message of messages) {
+    messageMap.set(message.messageId, message);
     if (!parentToChildrenMap.has(message.parentMessageId)) {
       parentToChildrenMap.set(message.parentMessageId, []);
     }
@@ -229,7 +248,7 @@ function getMessagesUpToTargetLevel(messages, targetMessageId) {
   }
 
   // Retrieve the target message
-  const targetMessage = messages.find((msg) => msg.messageId === targetMessageId);
+  const targetMessage = messageMap.get(targetMessageId);
   if (!targetMessage) {
     logger.error('Target message not found.');
     return [];
@@ -286,9 +305,11 @@ function getMessagesUpToTargetLevel(messages, targetMessageId) {
  * @returns {TMessage[]} The list of messages at and below the target level.
  */
 function splitAtTargetLevel(messages, targetMessageId) {
-  // Create a map of parentMessageId to children messages
+  // Create a map of parentMessageId to children messages and messageId to message for O(1) lookups
   const parentToChildrenMap = new Map();
+  const messageMap = new Map();
   for (const message of messages) {
+    messageMap.set(message.messageId, message);
     if (!parentToChildrenMap.has(message.parentMessageId)) {
       parentToChildrenMap.set(message.parentMessageId, []);
     }
@@ -296,7 +317,7 @@ function splitAtTargetLevel(messages, targetMessageId) {
   }
 
   // Retrieve the target message
-  const targetMessage = messages.find((msg) => msg.messageId === targetMessageId);
+  const targetMessage = messageMap.get(targetMessageId);
   if (!targetMessage) {
     logger.error('Target message not found.');
     return [];
