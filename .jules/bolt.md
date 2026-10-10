@@ -1,0 +1,3 @@
+## 2025-05-10 - Conversation Tree Traversal Map Lookups vs Array Searches
+**Learning:** Functions operating on conversation message trees (such as forking, splitting, or timestamp recalculations) frequently perform repeated parent or message lookups. Using `array.find()` inside loops or recursive traversals causes O(N^2) complexity, which degrades performance for long conversation threads or large import/fork batches.
+**Action:** When working with message lists or tree structures in this codebase, construct a `Map` mapping `messageId` (or `parentMessageId`) to message objects upfront for O(1) lookups during iterations and traversals.
