@@ -404,21 +404,54 @@ const RELATIVE_TIME_DIVISIONS: { amount: number; unit: Intl.RelativeTimeFormatUn
   { amount: Number.POSITIVE_INFINITY, unit: 'year' },
 ];
 
-/** Returns the locale only when it is a syntactically valid BCP-47 tag, else undefined. */
+const resolvedLocalesCache = new Map<string, string | undefined>();
+const relativeTimeFormattersCache = new Map<string, Intl.RelativeTimeFormat>();
+const dateTimeFormattersCache = new Map<string, Intl.DateTimeFormat>();
+
+/** Returns the locale only when it is a syntactically valid BCP-47 tag, else undefined. Cache results. */
 const resolveLocale = (locale?: string): string | undefined => {
   if (!locale) {
     return undefined;
   }
+  if (resolvedLocalesCache.has(locale)) {
+    return resolvedLocalesCache.get(locale);
+  }
+  let result: string | undefined;
   try {
     Intl.DateTimeFormat.supportedLocalesOf(locale);
-    return locale;
+    result = locale;
   } catch {
-    return undefined;
+    result = undefined;
   }
+  resolvedLocalesCache.set(locale, result);
+  return result;
+};
+
+const getRelativeTimeFormatter = (locale?: string): Intl.RelativeTimeFormat => {
+  const key = locale ?? 'default';
+  let formatter = relativeTimeFormattersCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    relativeTimeFormattersCache.set(key, formatter);
+  }
+  return formatter;
+};
+
+const getDateTimeFormatter = (locale?: string): Intl.DateTimeFormat => {
+  const key = locale ?? 'default';
+  let formatter = dateTimeFormattersCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+    dateTimeFormattersCache.set(key, formatter);
+  }
+  return formatter;
 };
 
 const formatRelativeTime = (from: Date, to: Date, locale?: string): string => {
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const formatter = getRelativeTimeFormatter(locale);
   let duration = (from.getTime() - to.getTime()) / 1000;
   for (const division of RELATIVE_TIME_DIVISIONS) {
     if (Math.abs(duration) < division.amount) {
@@ -449,10 +482,7 @@ export const getMessageTimestamp = (
   return {
     iso: date.toISOString(),
     relative: formatRelativeTime(date, now, safeLocale),
-    absolute: new Intl.DateTimeFormat(safeLocale, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(date),
+    absolute: getDateTimeFormatter(safeLocale).format(date),
     isRecent: Math.abs(now.getTime() - date.getTime()) < RECENT_THRESHOLD_MS,
   };
 };
