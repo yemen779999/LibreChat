@@ -40,6 +40,11 @@ export function extractEnvVariable(value: string) {
     return value;
   }
 
+  // Fast path: skip regex matching and string trimming if value contains no variable placeholders (${...})
+  if (!value.includes('${')) {
+    return value;
+  }
+
   const trimmed = value.trim();
 
   const singleMatch = trimmed.match(envVarRegex);
