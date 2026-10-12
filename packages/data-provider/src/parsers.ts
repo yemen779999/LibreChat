@@ -460,6 +460,11 @@ export function replaceSpecialVars({
     return result;
   }
 
+  // Fast path: skip Day.js date formatting, timezone conversions, and regex matches if text contains no template variables
+  if (!result.includes('{{')) {
+    return result;
+  }
+
   const now = applyTimezone(inputNow != null ? dayjs(inputNow) : dayjs(), timezone);
   const weekdayName = now.format('dddd');
 
