@@ -26,7 +26,9 @@ export function buildTree({
   const rootMessages: ParentMessage[] = [];
   const childrenCount: Record<string, number> = {};
 
-  for (const message of messages) {
+  // Optimization: use index-based loops to minimize overhead during frequent tree rebuilds
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
     if (!message) {
       continue;
     }
@@ -36,24 +38,32 @@ export function buildTree({
      *  `children.length`. */
     const parentId =
       message.parentMessageId === message.messageId ? '' : (message.parentMessageId ?? '');
-    childrenCount[parentId] = (childrenCount[parentId] || 0) + 1;
+    const currentCount = (childrenCount[parentId] || 0) + 1;
+    childrenCount[parentId] = currentCount;
 
     const extendedMessage: ParentMessage = {
       ...message,
       children: [],
       depth: 0,
-      siblingIndex: childrenCount[parentId] - 1,
+      siblingIndex: currentCount - 1,
     };
 
     if (message.files && fileMap) {
-      extendedMessage.files = message.files.map((file) => fileMap[file.file_id ?? ''] ?? file);
+      const files = message.files;
+      const mappedFiles = new Array(files.length);
+      for (let j = 0; j < files.length; j++) {
+        const file = files[j];
+        mappedFiles[j] = fileMap[file.file_id ?? ''] ?? file;
+      }
+      extendedMessage.files = mappedFiles;
     }
 
     messageMap[message.messageId] = extendedMessage;
     orderedMessages.push(extendedMessage);
   }
 
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     const parentMessage = messageMap[extendedMessage.parentMessageId ?? ''];
     if (parentMessage && parentMessage !== extendedMessage) {
       parentMessage.children.push(extendedMessage);
@@ -72,23 +82,35 @@ export function buildTree({
     const stack: ParentMessage[] = [root];
     while (stack.length > 0) {
       const node = stack.pop() as ParentMessage;
-      /** Every node has one parent, so this walk reaches each node once — an
-       *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
+      const children = node.children as ParentMessage[];
+      /** Optimization: Single-pass traversal through `node.children`.
+       *  Assigns child depth, marks as visited, pushes to stack, and severs
+       *  any cycle back-edges in-place without allocating temporary arrays
+       *  or running `some()` + `filter()` passes. */
+      let validIndex = 0;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          continue;
+        }
         child.depth = node.depth + 1;
         visited.add(child);
         stack.push(child);
+        if (validIndex !== i) {
+          children[validIndex] = child;
+        }
+        validIndex++;
+      }
+      if (validIndex < children.length) {
+        children.length = validIndex;
       }
     }
   };
-  for (const root of rootMessages) {
-    assignDepths(root);
+  for (let i = 0; i < rootMessages.length; i++) {
+    assignDepths(rootMessages[i]);
   }
-  for (const extendedMessage of orderedMessages) {
+  for (let i = 0; i < orderedMessages.length; i++) {
+    const extendedMessage = orderedMessages[i];
     if (!visited.has(extendedMessage)) {
       rootMessages.push(extendedMessage);
       assignDepths(extendedMessage);
