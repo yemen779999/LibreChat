@@ -176,16 +176,22 @@ export const getAllContentText = (message?: TMessage | null): string => {
   }
 
   if (message.content && message.content.length > 0) {
-    return message.content
-      .filter((part) => part != null && part.type === ContentTypes.TEXT)
-      .map((part) => {
-        if (!('text' in part)) return '';
-        const text = part.text;
-        if (typeof text === 'string') return text;
-        return text?.value || '';
-      })
-      .filter((text) => text.length > 0)
-      .join('\n');
+    // Single-pass optimization: avoids multiple array allocations from .filter().map().filter().join()
+    let result = '';
+    for (let i = 0; i < message.content.length; i++) {
+      const part = message.content[i];
+      if (part != null && part.type === ContentTypes.TEXT && 'text' in part) {
+        const rawText = part.text;
+        const text = typeof rawText === 'string' ? rawText : rawText?.value || '';
+        if (text.length > 0) {
+          if (result.length > 0) {
+            result += '\n';
+          }
+          result += text;
+        }
+      }
+    }
+    return result;
   }
 
   return '';
