@@ -15,6 +15,8 @@ const BaseClient = require('~/app/clients/BaseClient');
  */
 function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
   const idMapping = new Map();
+  /** Map of newly assigned newMessageId -> cloned message object for O(1) parent lookups */
+  const clonedMessageMap = new Map();
 
   // First pass: create ID mapping and sort messages by parentMessageId
   const sortedMessages = [...messagesToClone].sort((a, b) => {
@@ -48,7 +50,10 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     // If this message has a parent, ensure its timestamp is after the parent's
     let createdAt = ensureDate(message.createdAt);
     if (parentId !== Constants.NO_PARENT) {
-      const parentMessage = importBatchBuilder.messages.find((msg) => msg.messageId === parentId);
+      // O(1) lookup in local map instead of linear search through saved messages
+      const parentMessage =
+        clonedMessageMap.get(parentId) ??
+        importBatchBuilder.messages.find((msg) => msg.messageId === parentId);
       if (parentMessage) {
         const parentDate = ensureDate(parentMessage.createdAt);
         if (createdAt <= parentDate) {
@@ -65,6 +70,7 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     };
 
     importBatchBuilder.saveMessage(clonedMessage);
+    clonedMessageMap.set(newMessageId, clonedMessage);
   }
 
   return idMapping;
@@ -173,7 +179,9 @@ async function forkConversation({
  * @returns {TMessage[]} The list of messages up to the root from the target message.
  */
 function getAllMessagesUpToParent(messages, targetMessageId) {
-  const targetMessage = messages.find((msg) => msg.messageId === targetMessageId);
+  // Build O(1) lookup map to avoid O(N^2) quadratic search when walking parent pointers up to root
+  const messageMap = new Map(messages.map((msg) => [msg.messageId, msg]));
+  const targetMessage = messageMap.get(targetMessageId);
   if (!targetMessage) {
     return [];
   }
@@ -195,7 +203,7 @@ function getAllMessagesUpToParent(messages, targetMessageId) {
       break;
     }
 
-    current = messages.find((msg) => msg.messageId === currentParentId);
+    current = messageMap.get(currentParentId);
   }
 
   // Include all messages that are in the path or whose parent is in the path
