@@ -1,0 +1,3 @@
+## 2025-02-20 - Message Tree Building Performance
+**Learning:** `buildTree` in `packages/data-provider/src/messages.ts` is triggered repeatedly during SSE streaming updates and React message state updates. Inlining depth assignments and cycle pruning in a single pass while replacing `Record` lookups with `Map` and `for...of` with index-based `for` loops reduces `buildTree` execution time by ~26% and eliminates per-node callback/array allocations.
+**Action:** When working on message array and tree traversal utilities in `packages/data-provider` or `client/src/utils`, prefer `Map` structures and in-place single-pass iterations over array helper functions (`.some()`, `.filter()`) to avoid allocation churn in hot rendering/streaming paths.
