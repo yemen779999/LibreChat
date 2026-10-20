@@ -74,14 +74,28 @@ export function buildTree({
       const node = stack.pop() as ParentMessage;
       /** Every node has one parent, so this walk reaches each node once — an
        *  already-visited child is a cycle back-edge. Sever it (not just skip
-       *  it) so consumers that recurse `children` terminate. */
-      if ((node.children as ParentMessage[]).some((child) => visited.has(child))) {
-        node.children = (node.children as ParentMessage[]).filter((child) => !visited.has(child));
-      }
-      for (const child of node.children as ParentMessage[]) {
+       *  it) so consumers that recurse `children` terminate.
+       *  Optimization: Process children in a single indexed loop to avoid
+       *  redundant array iterations (.some and .filter) and duplicate visited lookups. */
+      const children = node.children as ParentMessage[];
+      let validChildren: ParentMessage[] | null = null;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (visited.has(child)) {
+          if (!validChildren) {
+            validChildren = children.slice(0, i);
+          }
+          continue;
+        }
         child.depth = node.depth + 1;
         visited.add(child);
         stack.push(child);
+        if (validChildren) {
+          validChildren.push(child);
+        }
+      }
+      if (validChildren) {
+        node.children = validChildren;
       }
     }
   };
