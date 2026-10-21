@@ -35,6 +35,9 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     return dateValue instanceof Date ? dateValue : new Date(dateValue);
   };
 
+  /** Map for O(1) lookup of saved parent messages instead of O(N) array search */
+  const savedMessagesMap = new Map();
+
   // Second pass: clone messages while maintaining proper timestamps
   for (const message of sortedMessages) {
     const newMessageId = uuidv4();
@@ -48,7 +51,7 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     // If this message has a parent, ensure its timestamp is after the parent's
     let createdAt = ensureDate(message.createdAt);
     if (parentId !== Constants.NO_PARENT) {
-      const parentMessage = importBatchBuilder.messages.find((msg) => msg.messageId === parentId);
+      const parentMessage = savedMessagesMap.get(parentId);
       if (parentMessage) {
         const parentDate = ensureDate(parentMessage.createdAt);
         if (createdAt <= parentDate) {
@@ -65,6 +68,7 @@ function cloneMessagesWithTimestamps(messagesToClone, importBatchBuilder) {
     };
 
     importBatchBuilder.saveMessage(clonedMessage);
+    savedMessagesMap.set(newMessageId, clonedMessage);
   }
 
   return idMapping;
@@ -173,7 +177,13 @@ async function forkConversation({
  * @returns {TMessage[]} The list of messages up to the root from the target message.
  */
 function getAllMessagesUpToParent(messages, targetMessageId) {
-  const targetMessage = messages.find((msg) => msg.messageId === targetMessageId);
+  /** Map for O(1) lookups during path traversal instead of O(N) array finds */
+  const messageMap = new Map();
+  for (const msg of messages) {
+    messageMap.set(msg.messageId, msg);
+  }
+
+  const targetMessage = messageMap.get(targetMessageId);
   if (!targetMessage) {
     return [];
   }
@@ -195,7 +205,7 @@ function getAllMessagesUpToParent(messages, targetMessageId) {
       break;
     }
 
-    current = messages.find((msg) => msg.messageId === currentParentId);
+    current = messageMap.get(currentParentId);
   }
 
   // Include all messages that are in the path or whose parent is in the path
